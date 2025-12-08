@@ -1,11 +1,12 @@
-from flask import Flask, request, jsonify
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 import re
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urljoin
 from rapidfuzz import fuzz, process
 
-app = Flask(__name__)
+app = FastAPI()
 
 EMAIL_REGEX = r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
 SOCIAL_PLATFORMS = ["facebook", "instagram", "linkedin", "youtube", "twitter", "x.com"]
@@ -35,9 +36,7 @@ def extract_emails_socials(soup):
         for platform in SOCIAL_PLATFORMS:
             if platform in href:
                 socials.setdefault(platform, set()).add(href)
-
-    socials = {k: list(v) for k, v in socials.items()}
-    return emails, socials
+    return emails, {k: list(v) for k, v in socials.items()}
 
 
 def get_internal_links(home_url, soup):
@@ -53,13 +52,7 @@ def get_internal_links(home_url, soup):
 
 
 def fuzzy_find_page(links, keywords, threshold=60):
-    ranked = process.extract(
-        keywords,
-        links,
-        scorer=fuzz.partial_ratio,
-        limit=5
-    )
-
+    ranked = process.extract(keywords, links, scorer=fuzz.partial_ratio, limit=5)
     for keyword, link, score in ranked:
         if score >= threshold:
             return link
@@ -96,19 +89,8 @@ def scrape_site(url):
     return {"source": "not_found", "emails": [], "socials": {}}
 
 
-@app.route("/api/scrape", methods=["GET"])
-def api_scrape():
-    domain = request.args.get("domain", "")
-    if not domain:
-        return jsonify({"error": "domain param is required"}), 400
-
+@app.get("/api/scrape")
+def scrape(domain: str):
     if not domain.startswith("http"):
         domain = "https://" + domain
-
-    result = scrape_site(domain)
-    return jsonify(result)
-
-
-# For testing locally
-if __name__ == "__main__":
-    app.run(debug=True)
+    return JSONResponse(scrape_site(domain))
