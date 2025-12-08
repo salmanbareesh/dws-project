@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 import re
 import requests
@@ -26,10 +26,8 @@ def get_html(url):
 def extract_emails_socials(soup):
     if soup is None:
         return [], {}
-
     text = soup.get_text(" ")
     emails = list(set(re.findall(EMAIL_REGEX, text)))
-
     socials = {}
     for a in soup.find_all("a", href=True):
         href = a["href"].lower()
@@ -42,20 +40,21 @@ def extract_emails_socials(soup):
 def get_internal_links(home_url, soup):
     domain = urlparse(home_url).netloc
     links = []
-
     for a in soup.find_all("a", href=True):
         href = urljoin(home_url, a["href"])
         if domain in urlparse(href).netloc:
             links.append(href)
-
     return list(set(links))
 
 
-def fuzzy_find_page(links, keywords, threshold=60):
-    ranked = process.extract(keywords, links, scorer=fuzz.partial_ratio, limit=5)
-    for keyword, link, score in ranked:
-        if score >= threshold:
-            return link
+def find_page(link_list, patterns):
+    best = process.extractOne(patterns, link_list, scorer=fuzz.partial_ratio)
+    if best and best[1] >= 60:
+        return best[0]
+    for link in link_list:
+        for p in patterns:
+            if p in link.lower():
+                return link
     return None
 
 
@@ -64,22 +63,28 @@ def scrape_site(url):
     if homepage_soup is None:
         return {"source": "error", "emails": [], "socials": {}}
 
+    # FOOTER
     footer = homepage_soup.find("footer")
     if footer:
         emails, socials = extract_emails_socials(footer)
         if emails or socials:
             return {"source": "footer", "emails": emails, "socials": socials}
 
-    internal_links = get_internal_links(url, homepage_soup)
+    # INTERNAL LINKS
+    internal = get_internal_links(url, homepage_soup)
 
-    contact_link = fuzzy_find_page(internal_links, ["contact", "support"])
+    # CONTACT PAGE
+    contact_patterns = ["contact", "contact-us", "contactus", "support", "help", "get-in-touch"]
+    contact_link = find_page(internal, contact_patterns)
     if contact_link:
         s = get_html(contact_link)
         emails, socials = extract_emails_socials(s)
         if emails or socials:
             return {"source": "contact_page", "page": contact_link, "emails": emails, "socials": socials}
 
-    about_link = fuzzy_find_page(internal_links, ["about", "company"])
+    # ABOUT PAGE
+    about_patterns = ["about", "about-us", "company", "who-we-are", "our-story"]
+    about_link = find_page(internal, about_patterns)
     if about_link:
         s = get_html(about_link)
         emails, socials = extract_emails_socials(s)
@@ -89,8 +94,32 @@ def scrape_site(url):
     return {"source": "not_found", "emails": [], "socials": {}}
 
 
+def run_scraper(domains):
+    results = []
+    for domain in domains:
+        domain = domain.strip()
+        if not domain:
+            continue
+        url = domain if domain.startswith("http") else f"https://{domain}"
+        result = scrape_site(url)
+        results.append({"domain": domain, **result})
+    return results
+
+
+# ---------------- API ENDPOINTS ----------------
+
+# GET /api/scrape?domains=domain1.com,domain2.com
 @app.get("/api/scrape")
-def scrape(domain: str):
-    if not domain.startswith("http"):
-        domain = "https://" + domain
-    return JSONResponse(scrape_site(domain))
+def scrape_get(domains: str):
+    domain_list = [d.strip() for d in domains.split(",") if d.strip()]
+    results = run_scraper(domain_list)
+    return JSONResponse(results)
+
+
+# POST /api/scrape-bulk {"domains": ["domain1.com", "domain2.com"]}
+@app.post("/api/scrape-bulk")
+async def scrape_post(request: Request):
+    data = await request.json()
+    domains = data.get("domains", [])
+    results = run_scraper(domains)
+    return JSONResponse(results)
