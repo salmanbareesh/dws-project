@@ -26,15 +26,28 @@ def get_html(url):
 def extract_emails_socials(soup):
     if soup is None:
         return [], {}
+
     text = soup.get_text(" ")
-    emails = list(set(re.findall(EMAIL_REGEX, text)))
+    emails = set(re.findall(EMAIL_REGEX, text))
+
+    # NEW: extract from mailto links
+    for a in soup.find_all("a", href=True):
+        href = a["href"].lower()
+
+        # extract from mailto:
+        if href.startswith("mailto:"):
+            email = href.replace("mailto:", "").split("?")[0]
+            emails.add(email)
+
     socials = {}
     for a in soup.find_all("a", href=True):
         href = a["href"].lower()
         for platform in SOCIAL_PLATFORMS:
             if platform in href:
                 socials.setdefault(platform, set()).add(href)
-    return emails, {k: list(v) for k, v in socials.items()}
+
+    return list(emails), {k: list(v) for k, v in socials.items()}
+
 
 
 def get_internal_links(home_url, soup):
