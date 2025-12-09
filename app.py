@@ -8,7 +8,7 @@ from rapidfuzz import fuzz, process
 
 app = FastAPI()
 
-EMAIL_REGEX = r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
+EMAIL_REGEX = r"[A-Za-z0-9._%+-]+\s*(?:@|\[at\]|\(at\)|\sat\s)\s*[A-Za-z0-9.-]+\s*(?:\.|\[dot\]|\(dot\)|\sdot\s)\s*[A-Za-z]{2,}"
 SOCIAL_PLATFORMS = ["facebook", "instagram", "linkedin", "youtube", "twitter", "x.com"]
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
